@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>محاكاة الأصوات</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--tx:#1b2638;--mut:#5b6b82;--ac:#1d6fd8;--bd:#d8e0ec;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151f;--card:#1a2232;--tx:#e8eef8;--mut:#9fb0c8;--ac:#5aa2ff;--bd:#2c3850}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Segoe UI",Tahoma,Arial,sans-serif;padding:12px}
+h1{text-align:center;font-size:1.4rem;margin:8px 0 14px}
+.wrap{max-width:900px;margin:auto;display:grid;gap:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px}
+canvas{width:100%;height:170px;display:block;border-radius:8px;background:var(--bg)}
+.ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+label{display:block;font-size:.9rem;color:var(--mut);margin-bottom:4px}
+label b{color:var(--tx)}
+input[type=range],select{width:100%}
+select,button{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
+button{background:var(--ac);color:#fff;border:0;font-weight:bold;cursor:pointer;width:100%;padding:12px}
+.vals{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;text-align:center}
+.vals div{background:var(--bg);border-radius:10px;padding:8px;font-size:.85rem;color:var(--mut)}
+.vals strong{display:block;font-size:1.1rem;color:var(--ac);direction:ltr}
+.note{font-size:.85rem;color:var(--mut);line-height:1.7}
+h2{font-size:1rem;margin:0 0 8px}
+</style>
+</head>
+<body>
+<h1>🔊 محاكاة الأصوات</h1>
+<div class="wrap">
+  <div class="card ctl">
+    <div><label>التواتر f: <b id="fv">440</b> Hz</label><input type="range" id="f" min="100" max="2000" value="440"></div>
+    <div><label>السعة (شدة الصوت): <b id="av">50</b>%</label><input type="range" id="a" min="0" max="100" value="50"></div>
+    <div><label>شكل الموجة</label><select id="w"><option value="sine">جيبية (نغمة نقية)</option><option value="square">مربعة</option><option value="triangle">مثلثية</option><option value="sawtooth">سنّية</option></select></div>
+    <div><label>الوسط الناقل</label><select id="m"><option value="340">الهواء (340 م/ث)</option><option value="1500">الماء (1500 م/ث)</option><option value="5000">الفولاذ (5000 م/ث)</option><option value="0">الفراغ (لا ينتشر الصوت)</option></select></div>
+    <div style="grid-column:1/-1"><button id="btn">▶ تشغيل الصوت</button></div>
+  </div>
+
+  <div class="card"><h2>الموجة الصوتية (تغيّر الضغط بدلالة الزمن)</h2><canvas id="c1" width="800" height="170"></canvas></div>
+  <div class="card"><h2>انتشار الصوت: انضغاط وتخلخل جزيئات الوسط</h2><canvas id="c2" width="800" height="170"></canvas></div>
+
+  <div class="card vals">
+    <div>الدور T<strong id="T"></strong></div>
+    <div>التواتر f<strong id="F"></strong></div>
+    <div>طول الموجة λ<strong id="L"></strong></div>
+    <div>سرعة الصوت v<strong id="V"></strong></div>
+    <div>الحدة<strong id="P" style="direction:rtl"></strong></div>
+  </div>
+
+  <div class="card note">
+    • التواتر يحدد <b>حدة</b> الصوت (حاد / غليظ)، والسعة تحدد <b>شدته</b>.<br>
+    • العلاقة: λ = v × T = v / f. الأذن البشرية تسمع تقريباً من 20 Hz إلى 20000 Hz.<br>
+    • الصوت موجة ميكانيكية طولية تحتاج إلى وسط مادي؛ لا ينتشر في الفراغ.
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let ctx=null,osc=null,gain=null,on=false;
+const f=$('f'),a=$('a'),w=$('w'),m=$('m'),btn=$('btn');
+function pitch(v){return v<250?'غليظ جداً':v<500?'غليظ':v<1000?'متوسط':v<1500?'حاد':'حاد جداً'}
+function info(){
+  const fr=+f.value,v=+m.value;
+  $('fv').textContent=fr;$('av').textContent=a.value;
+  $('F').textContent=fr+' Hz';
+  $('T').textContent=(1000/fr).toFixed(2)+' ms';
+  $('V').textContent=v?v+' m/s':'—';
+  $('L').textContent=v?(v/fr).toFixed(2)+' m':'—';
+  $('P').textContent=pitch(fr);
+  if(osc){osc.frequency.setTargetAtTime(fr,ctx.currentTime,.02);osc.type=w.value}
+  if(gain)gain.gain.setTargetAtTime(on&&v?a.value/100*0.3:0,ctx.currentTime,.02);
+}
+[f,a,w,m].forEach(e=>e.addEventListener('input',info));
+btn.onclick=()=>{
+  try{
+    if(!ctx){ctx=new (window.AudioContext||window.webkitAudioContext)();osc=ctx.createOscillator();gain=ctx.createGain();gain.gain.value=0;osc.connect(gain).connect(ctx.destination);osc.start()}
+    if(ctx.state==='suspended')ctx.resume();
+  }catch(e){return}
+  on=!on;btn.textContent=on?'⏹ إيقاف الصوت':'▶ تشغيل الصوت';info();
+};
+function wave(x,ph){ // x in cycles
+  const t=((x+ph)%1+1)%1;
+  switch(w.value){
+    case 'square':return t<.5?1:-1;
+    case 'triangle':return 4*Math.abs(t-.5)-1;
+    case 'sawtooth':return 2*t-1;
+    default:return Math.sin(2*Math.PI*t);
+  }
+}
+const c1=$('c1'),g1=c1.getContext('2d'),c2=$('c2'),g2=c2.getContext('2d');
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+let t0=0;
+function draw(ts){
+  const fr=+f.value,amp=a.value/100,vac=+m.value===0;
+  const cyc=Math.max(1,fr/100); // visual cycles across width
+  const ph=-(ts/1000)*0.6;
+  const ac=css('--ac'),mut=css('--mut');
+  // canvas 1
+  const W=c1.width,H=c1.height;
+  g1.clearRect(0,0,W,H);
+  g1.strokeStyle=mut;g1.globalAlpha=.4;g1.beginPath();g1.moveTo(0,H/2);g1.lineTo(W,H/2);g1.stroke();g1.globalAlpha=1;
+  g1.strokeStyle=ac;g1.lineWidth=2.5;g1.beginPath();
+  const A=vac?0:amp*(H/2-10);
+  for(let x=0;x<=W;x+=2){
+    const y=H/2-A*wave(x/W*cyc,ph*cyc*0.3);
+    x?g1.lineTo(x,y):g1.moveTo(x,y);
+  }
+  g1.stroke();
+  // canvas 2: particles
+  const W2=c2.width,H2=c2.height;
+  g2.clearRect(0,0,W2,H2);
+  const cols=60,rows=7,vc=Math.min(cyc,10);
+  g2.fillStyle=ac;
+  for(let r=0;r<rows;r++){
+    for(let i=0;i<cols;i++){
+      const x0=(i+.5)/cols*W2;
+      const disp=vac?0:amp*10*Math.sin(2*Math.PI*(i/cols*vc+ph*vc*0.3));
+      const y=(r+1)/(rows+1)*H2;
+      g2.globalAlpha=.85;
+      g2.beginPath();g2.arc(x0+disp,y,3,0,7);g2.fill();
+    }
+  }
+  g2.globalAlpha=1;
+  if(vac){g2.fillStyle=mut;g2.font='16px sans-serif';g2.textAlign='center';g2.fillText('لا توجد جزيئات: الصوت لا ينتشر في الفراغ',W2/2,H2/2)}
+  requestAnimationFrame(draw);
+}
+info();requestAnimationFrame(draw);
+</script>
+</body>
+</html>
